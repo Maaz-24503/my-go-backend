@@ -63,9 +63,11 @@ func SetupRoutes(
 
 		// Streaming routes
 		crypto.GET("/stream/prices", cryptoHandler.StreamPrices)        // SSE
-		crypto.GET("/stream/ws", cryptoHandler.WebSocketHandler)        // WebSocket
 		crypto.POST("/stream/portfolio", cryptoHandler.StreamPortfolio) // JSON streaming
 	}
+
+	// WebSocket endpoint with custom auth (supports query param token)
+	v1.GET("/crypto/stream/ws", cryptoHandler.WebSocketHandlerWithAuth(jwtSecret))
 
 	return router
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"my-go-backend/internal/services"
@@ -388,6 +389,107 @@ func (h *CryptoHandler) StreamPortfolio(c *gin.Context) {
 
 			fmt.Fprintf(c.Writer, "data: %s\n\n", eventData)
 			c.Writer.Flush()
+		}
+	}
+}
+
+// WebSocketHandlerWithAuth - WebSocket endpoint with query param auth support
+func (h *CryptoHandler) WebSocketHandlerWithAuth(jwtSecret string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Check for token in query parameter or Authorization header
+		tokenString := c.Query("token")
+		if tokenString == "" {
+			authHeader := c.GetHeader("Authorization")
+			if authHeader != "" {
+				tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+		}
+
+		if tokenString == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Token required in query param or Authorization header"})
+			return
+		}
+
+		// Validate JWT token
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			return []byte(jwtSecret), nil
+		})
+
+		if err != nil || !token.Valid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
+			return
+		}
+
+		userID := claims["user_id"]
+		
+		// Upgrade to WebSocket
+		conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			log.Printf("WebSocket upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		// Generate unique subscriber ID
+		subscriberID := uuid.New().String()
+		log.Printf("New authenticated WebSocket connection: %s (user: %v)", subscriberID, userID)
+
+		// Add subscriber
+		eventChan := h.cryptoService.AddSubscriber(subscriberID)
+		defer h.cryptoService.RemoveSubscriber(subscriberID)
+
+		// Handle client messages in separate goroutine
+		go func() {
+			defer func() {
+				log.Printf("WebSocket read goroutine ended for %s", subscriberID)
+			}()
+
+			for {
+				var msg models.WebSocketMessage
+				err := conn.ReadJSON(&msg)
+				if err != nil {
+					log.Printf("WebSocket read error for %s: %v", subscriberID, err)
+					break
+				}
+
+				log.Printf("Received message from %s: %+v", subscriberID, msg)
+
+				switch msg.Action {
+				case "ping":
+					err := conn.WriteJSON(models.WebSocketMessage{
+						Action: "pong",
+						Data:   "Server is alive",
+						ID:     msg.ID,
+					})
+					if err != nil {
+						log.Printf("Error sending pong: %v", err)
+					}
+				case "subscribe":
+					err := conn.WriteJSON(models.WebSocketMessage{
+						Action: "subscribed",
+						Data:   fmt.Sprintf("Subscribed to updates for %s", subscriberID),
+						ID:     msg.ID,
+					})
+					if err != nil {
+						log.Printf("Error sending subscribe confirmation: %v", err)
+					}
+				}
+			}
+		}()
+
+		// Send events to client
+		for event := range eventChan {
+			err := conn.WriteJSON(event)
+			if err != nil {
+				log.Printf("WebSocket write error: %v", err)
+				break
+			}
 		}
 	}
 }

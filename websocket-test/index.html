@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .log { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        button { padding: 8px 16px; margin: 5px; }
+        input { padding: 8px; margin: 5px; width: 300px; }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Test for Go Backend</h1>
+    
+    <div>
+        <h3>Step 1: Get Auth Token</h3>
+        <button onclick="register()">Register User</button>
+        <button onclick="login()">Login</button>
+        <div id="authLog" class="log"></div>
+    </div>
+
+    <div>
+        <h3>Step 2: Connect WebSocket</h3>
+        <button onclick="connectWebSocket()">Connect WebSocket</button>
+        <button onclick="sendPing()">Send Ping</button>
+        <button onclick="sendSubscribe()">Send Subscribe</button>
+        <div id="wsLog" class="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let token = null;
+        
+        function log(elementId, message) {
+            const element = document.getElementById(elementId);
+            element.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '<br>';
+            element.scrollTop = element.scrollHeight;
+        }
+
+        async function register() {
+            try {
+                const response = await fetch('http://localhost:8095/api/v1/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: "testuser" + Math.random().toString(36).substr(2, 5),
+                        email: "test" + Math.random().toString(36).substr(2, 5) + "@example.com",
+                        password: "password123"
+                    })
+                });
+                
+                const data = await response.json();
+                log('authLog', 'Register: ' + JSON.stringify(data));
+            } catch (error) {
+                log('authLog', 'Register Error: ' + error.message);
+            }
+        }
+
+        async function login() {
+            try {
+                const response = await fetch('http://localhost:8095/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: "test@example.com",
+                        password: "password123"
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success && data.data.token) {
+                    token = data.data.token;
+                    log('authLog', 'Login successful! Token: ' + token.substring(0, 20) + '...');
+                } else {
+                    log('authLog', 'Login failed: ' + JSON.stringify(data));
+                }
+            } catch (error) {
+                log('authLog', 'Login Error: ' + error.message);
+            }
+        }
+
+        function connectWebSocket() {
+            if (!token) {
+                log('wsLog', 'Error: Please login first to get token');
+                return;
+            }
+
+            // Connect with token as query parameter
+            ws = new WebSocket('ws://localhost:8095/api/v1/crypto/stream/ws?token=' + encodeURIComponent(token));
+            
+            ws.onopen = function() {
+                log('wsLog', 'Connected to WebSocket');
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                log('wsLog', 'Received: ' + JSON.stringify(data));
+            };
+            
+            ws.onclose = function(event) {
+                log('wsLog', 'WebSocket closed. Code: ' + event.code + ', Reason: ' + event.reason);
+            };
+            
+            ws.onerror = function(error) {
+                log('wsLog', 'WebSocket error: ' + error);
+            };
+        }
+
+        function sendPing() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = {
+                    action: 'ping',
+                    id: 'ping-test-' + Date.now()
+                };
+                ws.send(JSON.stringify(message));
+                log('wsLog', 'Sent ping: ' + JSON.stringify(message));
+            } else {
+                log('wsLog', 'WebSocket not connected');
+            }
+        }
+
+        function sendSubscribe() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = {
+                    action: 'subscribe',
+                    id: 'test-client-123'
+                };
+                ws.send(JSON.stringify(message));
+                log('wsLog', 'Sent subscribe: ' + JSON.stringify(message));
+            } else {
+                log('wsLog', 'WebSocket not connected');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -30,10 +30,10 @@ func LoadConfig() *Config {
 	jwtExpires, _ := time.ParseDuration(getEnv("JWT_EXPIRES_IN", "24h"))
 
 	return &Config{
-		Port:         getEnv("PORT", "8080"),
+		Port:         getEnv("PORT", "8095"),
 		Host:         getEnv("HOST", "localhost"),
 		DBHost:       getEnv("DB_HOST", "localhost"),
-		DBPort:       getEnv("DB_PORT", "5432"),
+		DBPort:       getEnv("DB_PORT", "30532"),
 		DBUser:       getEnv("DB_USER", "postgres"),
 		DBPassword:   getEnv("DB_PASSWORD", "password"),
 		DBName:       getEnv("DB_NAME", "myapp"),
